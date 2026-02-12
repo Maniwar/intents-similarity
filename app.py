@@ -213,7 +213,7 @@ with tab3:
         projects = list_projects()
         if projects:
             proj_df = pd.DataFrame(projects)
-            st.dataframe(proj_df, use_container_width=True)
+            st.dataframe(proj_df, width='stretch')
 
             selected_project = st.selectbox("Select project:", [p['name'] for p in projects], key="load_project_select")
 

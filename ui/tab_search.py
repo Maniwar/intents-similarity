@@ -43,7 +43,7 @@ def render_tab_search(intents, sidebar_cfg):
         with st.expander("Search History", expanded=False):
             history_df = pd.DataFrame(st.session_state.search_history).iloc[::-1]
             display_history = history_df[['timestamp', 'query', 'threshold', 'results', 'top_similarity', 'recommended_intent']].head(20)
-            st.dataframe(display_history, use_container_width=True)
+            st.dataframe(display_history, width='stretch')
 
             col1, col2 = st.columns(2)
             with col1:
@@ -243,7 +243,7 @@ def _render_single_search(all_phrases, phrase_to_intent, embeddings, intents, si
                 '% of Results': f"{count / len(results_df) * 100:.1f}%",
             })
         intent_dist_df = pd.DataFrame(intent_dist)
-        st.dataframe(intent_dist_df, use_container_width=True)
+        st.dataframe(intent_dist_df, width='stretch')
 
     # Results table
     st.subheader("All Similar Phrases (Ranked by Similarity)")
@@ -269,7 +269,7 @@ def _render_single_search(all_phrases, phrase_to_intent, embeddings, intents, si
     display = filtered[['Similarity Score Display', 'Match Type', 'Intent', 'Phrase', 'Keywords']].head(display_limit)
     display = display.rename(columns={'Similarity Score Display': 'Similarity Score'})
     if not display.empty:
-        st.dataframe(display, use_container_width=True, height=400)
+        st.dataframe(display, width='stretch', height=400)
         if len(filtered) > display_limit:
             st.info(f"Showing {display_limit} of {len(filtered)} filtered results")
     else:
@@ -302,11 +302,11 @@ def _render_single_search(all_phrases, phrase_to_intent, embeddings, intents, si
     fig.add_vline(x=0.85, line_dash="dash", line_color="red", annotation_text="High Threshold")
     fig.add_vline(x=0.70, line_dash="dash", line_color="yellow", annotation_text="Moderate Threshold")
     fig.update_layout(height=400)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
     if len(intent_counts) > 1:
         fig2 = px.pie(values=intent_counts.values, names=intent_counts.index, title='Results Distribution by Intent', height=400)
-        st.plotly_chart(fig2, use_container_width=True)
+        st.plotly_chart(fig2, width='stretch')
 
     # Save to history
     if st.button("Save to Search History", key="save_search"):
@@ -384,7 +384,7 @@ def _render_batch_search(all_phrases, phrase_to_intent, embeddings, intents, sid
         })
 
     summary_df = pd.DataFrame(summary_rows)
-    st.dataframe(summary_df, use_container_width=True, height=min(600, 35 * len(summary_rows) + 38))
+    st.dataframe(summary_df, width='stretch', height=min(600, 35 * len(summary_rows) + 38))
 
     # Action breakdown
     action_counts = Counter(r['action'] for r in results)
@@ -412,6 +412,6 @@ def _render_batch_search(all_phrases, phrase_to_intent, embeddings, intents, sid
             st.markdown(f"**{r['query'][:80]}** -- Action: `{r['action']}` -- Top: {r['top_similarity']:.3f}")
             if r['matches']:
                 match_df = pd.DataFrame(r['matches'][:5])[['similarity', 'intent', 'phrase']]
-                st.dataframe(match_df, use_container_width=True)
+                st.dataframe(match_df, width='stretch')
             else:
                 st.caption("No matches above threshold")

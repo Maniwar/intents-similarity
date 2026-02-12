@@ -24,7 +24,7 @@ def render_tab_similarity(df, intents, sidebar_cfg):
     dynamic_limits = sidebar_cfg['dynamic_limits']
 
     st.header("Intent Data")
-    st.dataframe(df, use_container_width=True)
+    st.dataframe(df, width='stretch')
 
     # ---- Data verification ----
     if intents:
@@ -49,7 +49,7 @@ def render_tab_similarity(df, intents, sidebar_cfg):
     if cross_dupes:
         st.warning(f"Found {len(cross_dupes)} phrase(s) appearing in multiple intents. This may inflate similarity scores.")
         with st.expander(f"View {len(cross_dupes)} Cross-Intent Duplicate Phrases", expanded=False):
-            st.dataframe(pd.DataFrame(cross_dupes), use_container_width=True)
+            st.dataframe(pd.DataFrame(cross_dupes), width='stretch')
 
             if st.button("Remove Cross-Intent Duplicates (keep first occurrence)"):
                 cleaned_df = remove_cross_intent_duplicates(df, intents)
@@ -139,7 +139,7 @@ def render_tab_similarity(df, intents, sidebar_cfg):
     st.subheader("Intent Health Dashboard")
     health_records = compute_intent_health(intents, embeddings, phrase_to_intent, intent_names)
     health_df = pd.DataFrame(health_records)
-    st.dataframe(health_df, use_container_width=True, height=min(400, 35 * len(health_records) + 38))
+    st.dataframe(health_df, width='stretch', height=min(400, 35 * len(health_records) + 38))
     st.caption("Health Score (0-100) combines cohesion (intra-intent similarity), separation (inter-intent distance), phrase count, and keyword diversity.")
 
     # ---- Heatmap ----
@@ -151,7 +151,7 @@ def render_tab_similarity(df, intents, sidebar_cfg):
         title="Intent Similarity Matrix",
     )
     fig.update_layout(height=600)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
     # ---- t-SNE visualisation (new) ----
     st.subheader("Phrase Embedding Space (t-SNE)")
@@ -170,12 +170,12 @@ def render_tab_similarity(df, intents, sidebar_cfg):
     )
     fig_tsne.update_traces(marker=dict(size=5, opacity=0.7))
     fig_tsne.update_layout(legend=dict(orientation='h', yanchor='bottom', y=-0.3))
-    st.plotly_chart(fig_tsne, use_container_width=True)
+    st.plotly_chart(fig_tsne, width='stretch')
 
     # ---- Confusing pairs table ----
     if confusing_pairs:
         st.subheader("Potentially Confusing Intent Pairs")
-        st.dataframe(pd.DataFrame(confusing_pairs), use_container_width=True)
+        st.dataframe(pd.DataFrame(confusing_pairs), width='stretch')
     else:
         st.success("No confusing intent pairs detected at this threshold!")
 
@@ -217,7 +217,7 @@ def render_tab_similarity(df, intents, sidebar_cfg):
             if len(exact_dupes) > 0:
                 st.error(f"CRITICAL DATA ISSUE: Found {len(exact_dupes)} exact duplicate phrases across different intents!")
                 with st.expander(f"View ALL {len(exact_dupes)} Exact Duplicates", expanded=False):
-                    st.dataframe(exact_dupes, use_container_width=True, height=400)
+                    st.dataframe(exact_dupes, width='stretch', height=400)
                     st.download_button(
                         f"Download ALL Exact Duplicates ({len(exact_dupes)} rows)",
                         exact_dupes.to_csv(index=False), "exact_duplicates.csv", "text/csv",
@@ -230,7 +230,7 @@ def render_tab_similarity(df, intents, sidebar_cfg):
         confusion_df['Similarity_Float'] = confusion_df['Similarity'].astype(float)
         confusion_df = confusion_df.sort_values('Similarity_Float', ascending=False).drop('Similarity_Float', axis=1)
 
-        st.dataframe(confusion_df.head(max_display_rows), use_container_width=True)
+        st.dataframe(confusion_df.head(max_display_rows), width='stretch')
         if len(confusion_df) > max_display_rows:
             st.warning(f"{len(confusion_df) - max_display_rows} additional conflicts not shown.")
         st.download_button(
@@ -282,7 +282,7 @@ def render_tab_similarity(df, intents, sidebar_cfg):
 
     if priority_actions:
         priority_df = pd.DataFrame(priority_actions)
-        st.dataframe(priority_df, use_container_width=True, height=400)
+        st.dataframe(priority_df, width='stretch', height=400)
         st.download_button(
             f"Download All Priority Actions ({len(priority_df)} items)",
             priority_df.to_csv(index=False), "priority_actions.csv", "text/csv",
@@ -325,7 +325,7 @@ def render_tab_similarity(df, intents, sidebar_cfg):
         if display_df.empty:
             st.warning("No phrase-level actions match the current filters.")
         else:
-            st.dataframe(display_df, use_container_width=True, height=400)
+            st.dataframe(display_df, width='stretch', height=400)
             st.info("**How to read this table:** 'Your Phrase' is the problem phrase. 'Conflicts With Phrase' is the similar phrase in the other intent.")
             if len(filtered_df) > display_limit:
                 st.info(f"Showing {display_limit} of {len(filtered_df)} recommendations. Download full list below.")
@@ -518,7 +518,7 @@ def render_tab_similarity(df, intents, sidebar_cfg):
     if generated_state:
         phrases_for_display = generated_state.get('phrases', [])
         st.caption(f"Last generated: {generated_state.get('generated_at', 'unknown time')}")
-        st.dataframe(pd.DataFrame({selected_intent: phrases_for_display}), use_container_width=True)
+        st.dataframe(pd.DataFrame({selected_intent: phrases_for_display}), width='stretch')
 
         col_add, col_clear = st.columns(2)
         with col_add:
