@@ -297,5 +297,5 @@ def compute_tsne(embeddings, perplexity=30, random_state=42):
     """Reduce embeddings to 2-D via t-SNE for scatter plot visualisation."""
     n_samples = embeddings.shape[0]
     perplexity = min(perplexity, max(5, n_samples - 1))
-    tsne = TSNE(n_components=2, perplexity=perplexity, random_state=random_state, n_iter=1000)
+    tsne = TSNE(n_components=2, perplexity=perplexity, random_state=random_state, max_iter=1000)
     return tsne.fit_transform(embeddings)
