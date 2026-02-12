@@ -76,16 +76,72 @@ Upload a CSV where each **column** is an intent and each **row** contains phrase
 
 Memory limits auto-scale based on available system RAM.
 
-## Export
+## Buttons & Actions Reference
 
-Analysis results export as an Excel workbook with sheets for:
-1. Summary metrics
-2. Confusing intent pairs
-3. Priority actions (Critical / High / Medium)
-4. All phrase conflicts
-5. Intent similarity matrix
+### Project Management (Sidebar)
 
-Search results export to Excel, JSON, or plain text.
+| Button | What it does |
+|---|---|
+| **Save Project** | Saves the current session (dataset, embeddings, search history, model metadata) to `~/.intent_analyzer_projects/` so you can resume later |
+| **Load Project** | Restores a previously saved project, including all analysis results |
+| **Delete Project** | Permanently removes a saved project from disk |
+
+### Model & Data Preparation
+
+| Button | What it does |
+|---|---|
+| **Load Model** | Downloads (first time) and loads the selected sentence-transformer or base-transformer model into memory |
+| **Remove Duplicates from Dataset** | Removes duplicate phrases within each intent column |
+| **Remove Cross-Intent Duplicates** | Removes phrases that appear in more than one intent, keeping only the first occurrence |
+
+### Similarity Analysis Tab
+
+| Button | What it does |
+|---|---|
+| **Run Analysis** | Computes embeddings, builds the intent similarity matrix, detects phrase-level conflicts, and generates all recommendations |
+| **Set as Baseline** | Snapshots current analysis results so you can compare before/after when you re-run analysis after editing the dataset |
+| **Reset Baseline** | Clears the saved baseline snapshot |
+
+### Phrase Generation (Similarity Tab)
+
+| Button | What it does |
+|---|---|
+| **Generate Phrases** | Uses the loaded model to produce paraphrase variations of phrases for a selected intent |
+| **Add Generated Phrases to Dataset** | Appends the generated phrases into the working dataset |
+| **Clear Generated Phrases** | Discards generated phrases for the selected intent without adding them |
+
+### Similarity Tab — Downloads
+
+| Button | File | Contents |
+|---|---|---|
+| **Download Cleaned Dataset** | `cleaned_intents.csv` | Dataset after duplicate removal |
+| **Download ALL Exact Duplicates** | `exact_duplicates.csv` | Every exact-match duplicate found across intents |
+| **Download Full Confusion Report** | `phrase_confusion_report.csv` | All phrase-level conflicts with similarity scores |
+| **Download All Priority Actions** | `priority_actions.csv` | Actionable recommendations (merge / differentiate / rephrase) ranked Critical → High → Medium |
+| **Download All Phrase-Level Actions** | `phrase_level_actions.csv` | Per-phrase conflict recommendations with suggested actions |
+| **Generate Complete Excel Workbook** / **Download Complete Excel Workbook** | `intent_analysis_complete.xlsx` | Multi-sheet workbook: Executive Summary, Confusing Pairs, Priority Actions, Phrase-Level Recommendations, Intent Similarity Matrix |
+| **Download Modified Dataset** | `modified_intents.csv` | The current working dataset as-is, reflecting every change made during the session (duplicate removals, added generated phrases, etc.) |
+| **Generate Full Report** / **Download Full Report** | `intent_analysis_report.txt` | Plain-text report with executive summary, key findings, methodology, and improvement recommendations |
+
+### Semantic Search & Audit Tab
+
+| Button | What it does |
+|---|---|
+| **Search & Analyze** | Runs a semantic search for a single query phrase against the entire dataset and displays ranked results |
+| **Run Batch Audit** | Searches multiple phrases at once and classifies each as `DUPLICATE` (>98%), `ADD` (85–98%), `REVIEW` (70–85%), or `NEW_INTENT` (<70%) |
+| **Save to Search History** | Stores the current search results in session history for later reference |
+| **Export History** | Shows a download button for the full search history |
+| **Clear History** | Deletes all saved search history |
+
+### Search Tab — Downloads
+
+| Button | File | Contents |
+|---|---|---|
+| **Download as CSV** | `semantic_search_results_<timestamp>.csv` | Search results with phrase, intent, and similarity scores |
+| **Download Excel Report** | `semantic_search_audit_<timestamp>.xlsx` | Multi-sheet workbook: Search Metadata, Full Results, Intent Distribution, Top 10 Matches |
+| **Download as JSON** | `semantic_search_results_<timestamp>.json` | JSON export of search results including query metadata |
+| **Download History CSV** | `search_history.csv` | Complete search history with queries, thresholds, and result counts |
+| **Download Batch Audit Report** | `batch_audit_<timestamp>.csv` | Summary of batch audit results with action classifications and recommendations |
 
 ## Project Structure
 
