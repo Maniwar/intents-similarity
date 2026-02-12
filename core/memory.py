@@ -16,7 +16,7 @@ def get_gpu_info():
         return {
             'available': True,
             'name': torch.cuda.get_device_name(0),
-            'memory_total': torch.cuda.get_device_properties(0).total_mem / (1024 ** 3),
+            'memory_total': torch.cuda.get_device_properties(0).total_memory / (1024 ** 3),
         }
     return {'available': False, 'name': None, 'memory_total': 0}
 
