@@ -299,11 +299,10 @@ def render_tab_similarity(df, intents, sidebar_cfg):
     # Phrase-level recommendations
     st.subheader("Phrase-Level Actions")
     if phrase_confusion:
-        # Sort by similarity descending so the most critical conflicts are
-        # analysed first (build_phrase_recommendations caps at 500).
+        # Sort by similarity descending so the most critical conflicts appear first.
         phrase_confusion_sorted = sorted(phrase_confusion, key=lambda c: float(c['Similarity']), reverse=True)
-        st.info(f"Analysing top {min(len(phrase_confusion_sorted), 500)} phrase conflicts for actionable recommendations...")
-        phrase_recs = build_phrase_recommendations(phrase_confusion_sorted)
+        with st.spinner(f"Building recommendations for {len(phrase_confusion_sorted):,} phrase conflicts..."):
+            phrase_recs = build_phrase_recommendations(phrase_confusion_sorted)
 
         phrase_columns = [
             'Action', 'Your Phrase', 'Current Intent', 'Conflicts With Phrase',
