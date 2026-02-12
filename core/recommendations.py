@@ -53,9 +53,9 @@ def build_phrase_issue_actions(confusing_pairs, phrase_confusion, intents):
     return actions
 
 
-def build_phrase_recommendations(phrase_confusion, sample_size=500):
+def build_phrase_recommendations(phrase_confusion):
     recs = []
-    for confusion in phrase_confusion[:sample_size]:
+    for confusion in phrase_confusion:
         phrase = confusion['Phrase']
         current_intent = confusion['Intent']
         similar_phrase = confusion['Similar To']
