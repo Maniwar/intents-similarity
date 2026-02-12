@@ -5,7 +5,7 @@ import plotly.express as px
 import torch
 
 from core.memory import get_device, get_dynamic_limits
-from core.analysis import perform_analysis, compute_intent_health, compute_tsne, PHRASE_SIMILARITY_MIN
+from core.analysis import perform_analysis, compute_intent_health, compute_tsne, _TSNE_SAMPLE_CAP, PHRASE_SIMILARITY_MIN
 from core.keywords import analyze_keyword_overlap, extract_keywords_tfidf
 from core.recommendations import build_priority_actions, build_phrase_issue_actions, build_phrase_recommendations
 from core.paraphrase import PARAPHRASE_MODELS, generate_paraphrases
@@ -155,6 +155,9 @@ def render_tab_similarity(df, intents, sidebar_cfg):
 
     # ---- t-SNE visualisation (new) ----
     st.subheader("Phrase Embedding Space (t-SNE)")
+    n_phrases = embeddings.shape[0]
+    if n_phrases > _TSNE_SAMPLE_CAP:
+        st.info(f"Large dataset ({n_phrases:,} phrases) — t-SNE computed on a {_TSNE_SAMPLE_CAP:,}-point sample; remaining points interpolated.")
     with st.spinner("Computing 2-D projection..."):
         coords = compute_tsne(embeddings)
     tsne_df = pd.DataFrame({
@@ -296,8 +299,11 @@ def render_tab_similarity(df, intents, sidebar_cfg):
     # Phrase-level recommendations
     st.subheader("Phrase-Level Actions")
     if phrase_confusion:
-        st.info(f"Analysing top {min(len(phrase_confusion), 500)} phrase conflicts for actionable recommendations...")
-        phrase_recs = build_phrase_recommendations(phrase_confusion)
+        # Sort by similarity descending so the most critical conflicts are
+        # analysed first (build_phrase_recommendations caps at 500).
+        phrase_confusion_sorted = sorted(phrase_confusion, key=lambda c: float(c['Similarity']), reverse=True)
+        st.info(f"Analysing top {min(len(phrase_confusion_sorted), 500)} phrase conflicts for actionable recommendations...")
+        phrase_recs = build_phrase_recommendations(phrase_confusion_sorted)
 
         phrase_columns = [
             'Action', 'Your Phrase', 'Current Intent', 'Conflicts With Phrase',

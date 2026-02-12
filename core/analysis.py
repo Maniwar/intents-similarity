@@ -2,6 +2,7 @@ import numpy as np
 import streamlit as st
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.manifold import TSNE
+from sklearn.decomposition import PCA
 import logging
 
 from core.embeddings import encode_texts
@@ -293,9 +294,64 @@ def compute_intent_health(intents, embeddings, phrase_to_intent, intent_names):
 # Dimensionality reduction for visualisation
 # ---------------------------------------------------------------------------
 
+_TSNE_SAMPLE_CAP = 5000  # subsample above this to keep t-SNE interactive
+
+
+@st.cache_data(show_spinner=False, max_entries=4)
 def compute_tsne(embeddings, perplexity=30, random_state=42):
-    """Reduce embeddings to 2-D via t-SNE for scatter plot visualisation."""
-    n_samples = embeddings.shape[0]
-    perplexity = min(perplexity, max(5, n_samples - 1))
-    tsne = TSNE(n_components=2, perplexity=perplexity, random_state=random_state, max_iter=1000)
-    return tsne.fit_transform(embeddings)
+    """Reduce embeddings to 2-D via t-SNE for scatter plot visualisation.
+
+    For large datasets the embedding dimensions are first reduced with PCA to
+    speed up the O(n*d) distance calculations that dominate t-SNE runtime.
+    When n_samples exceeds ``_TSNE_SAMPLE_CAP`` a random subset is projected
+    via t-SNE and the remaining points are placed by nearest-neighbour
+    interpolation, keeping the plot fast without losing the overall structure.
+    """
+    embeddings = np.asarray(embeddings, dtype=np.float32)
+    n_samples, n_dims = embeddings.shape
+    perplexity = min(perplexity, max(2, n_samples - 1))
+
+    # PCA pre-reduction: bring high-dimensional embeddings (768+) down to 50-D.
+    pca_dims = 50
+    if n_dims > pca_dims and n_samples > pca_dims:
+        embeddings = PCA(n_components=pca_dims, random_state=random_state).fit_transform(embeddings)
+
+    if n_samples <= _TSNE_SAMPLE_CAP:
+        tsne = TSNE(
+            n_components=2,
+            perplexity=perplexity,
+            random_state=random_state,
+            init="pca",
+            learning_rate="auto",
+        )
+        return tsne.fit_transform(embeddings)
+
+    # Large dataset: subsample, project, then interpolate the rest.
+    rng = np.random.RandomState(random_state)
+    idx = rng.choice(n_samples, _TSNE_SAMPLE_CAP, replace=False)
+    subset = embeddings[idx]
+    perplexity_sub = min(perplexity, max(2, _TSNE_SAMPLE_CAP - 1))
+    tsne = TSNE(
+        n_components=2,
+        perplexity=perplexity_sub,
+        random_state=random_state,
+        init="pca",
+        learning_rate="auto",
+    )
+    coords_sub = tsne.fit_transform(subset)
+
+    # Place remaining points at the mean position of their k nearest
+    # neighbours in the subset.
+    from sklearn.neighbors import NearestNeighbors
+    k = min(5, _TSNE_SAMPLE_CAP)
+    nn = NearestNeighbors(n_neighbors=k, metric="cosine").fit(subset)
+    dists, neighbours = nn.kneighbors(embeddings)
+    coords_all = np.zeros((n_samples, 2), dtype=np.float32)
+    coords_all[idx] = coords_sub
+    mask = np.ones(n_samples, dtype=bool)
+    mask[idx] = False
+    # Weighted average (inverse distance) of neighbour positions
+    weights = 1.0 / (dists[mask] + 1e-8)
+    weights /= weights.sum(axis=1, keepdims=True)
+    coords_all[mask] = (weights[:, :, None] * coords_sub[neighbours[mask]]).sum(axis=1)
+    return coords_all
