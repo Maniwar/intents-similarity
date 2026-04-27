@@ -8,6 +8,7 @@ from transformers import pipeline, AutoTokenizer, AutoModel
 import torch
 from collections import Counter
 import re
+import random
 from io import BytesIO
 from contextlib import nullcontext
 import json
@@ -15,6 +16,20 @@ import psutil
 
 # Page config
 st.set_page_config(page_title="Intent Similarity Analyzer with Semantic Search", layout="wide")
+
+# Determinism: seed RNGs once per Streamlit session so paraphrase generation
+# is reproducible. We gate on session_state because Streamlit reruns the entire
+# script on every interaction — re-seeding at module top would reset RNG state
+# on every rerun, causing successive "Generate Phrases" clicks to return
+# identical outputs.
+_SEED = 42
+if '_rng_seeded' not in st.session_state:
+    random.seed(_SEED)
+    np.random.seed(_SEED)
+    torch.manual_seed(_SEED)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(_SEED)
+    st.session_state._rng_seeded = True
 
 # Initialize session state
 if 'data' not in st.session_state:
@@ -889,13 +904,22 @@ if uploaded_file is not None:
 
                     # Option to remove duplicates
                     if st.button("🧹 Remove Duplicates from Dataset"):
-                        cleaned_df = df.copy()
-                        for col in cleaned_df.columns:
-                            # Remove duplicates within each column
-                            cleaned_df[col] = cleaned_df[col].drop_duplicates()
-
-                        # Remove rows that are all NaN
-                        cleaned_df = cleaned_df.dropna(how='all')
+                        # Deduplicate each column independently, then rebuild the
+                        # DataFrame. Avoids the index-alignment bug of assigning a
+                        # shortened Series back into the same DataFrame (which
+                        # silently turns dropped rows into NaN instead of removing
+                        # them).
+                        deduped_cols = {
+                            col: df[col].dropna().drop_duplicates().tolist()
+                            for col in df.columns
+                        }
+                        max_len = max((len(v) for v in deduped_cols.values()), default=0)
+                        cleaned_df = pd.DataFrame({
+                            col: vals + [None] * (max_len - len(vals))
+                            for col, vals in deduped_cols.items()
+                        })
+                        # Drop any all-NaN trailing rows just in case
+                        cleaned_df = cleaned_df.dropna(how='all').reset_index(drop=True)
 
                         st.session_state.data = cleaned_df
                         st.session_state.analysis_results = None
@@ -1123,8 +1147,13 @@ if uploaded_file is not None:
                         st.metric("🟡 Should Fix", high_sim_pairs)
 
                     with col3:
-                        phrase_critical = len([p for p in phrase_confusion[:1000] if float(p['Similarity']) > 0.95]) if phrase_confusion else 0
-                        st.metric("📝 Phrases to Move/Delete", f"{phrase_critical}+")
+                        # Count across ALL conflicts above threshold, not the
+                        # first 1000 in iteration order — the prior cap caused
+                        # this metric to undercount on large datasets without
+                        # any indication. The work is a single O(n) comprehension
+                        # so there's no perf reason to limit it.
+                        phrase_critical = sum(1 for p in phrase_confusion if float(p['Similarity']) > 0.95) if phrase_confusion else 0
+                        st.metric("📝 Phrases to Move/Delete", phrase_critical)
 
                     with col4:
                         total_conflicts = len(phrase_confusion) if phrase_confusion else 0
@@ -1179,10 +1208,12 @@ if uploaded_file is not None:
 
                 # Medium-priority: Specific phrase confusions
                 if phrase_confusion:
+                    # Bucket EVERY conflict (above threshold) by intent-pair so
+                    # the priority list reflects true severity, not just the
+                    # first 1000 conflicts found in iteration order. This loop
+                    # is O(n) with constant per-item work, no perf reason to cap.
                     phrase_issues = {}
-                    sample_conflicts = phrase_confusion[:1000] if len(phrase_confusion) > 1000 else phrase_confusion
-
-                    for confusion in sample_conflicts:
+                    for confusion in phrase_confusion:
                         key = (confusion['Intent'], confusion['Other Intent'])
                         if key not in phrase_issues:
                             phrase_issues[key] = []
@@ -1219,15 +1250,56 @@ if uploaded_file is not None:
                 st.subheader("📝 Phrase-Level Actions")
 
                 if phrase_confusion:
-                    st.info(f"💡 Analyzing top {min(len(phrase_confusion), 500)} phrase conflicts for actionable recommendations...")
+                    # Sort by similarity descending so any user-applied cap
+                    # selects the WORST offenders rather than an arbitrary
+                    # iteration-order slice (the source list is appended in
+                    # phrase-index order, not similarity order).
+                    phrase_confusion_sorted = sorted(
+                        phrase_confusion,
+                        key=lambda c: float(c['Similarity']),
+                        reverse=True
+                    )
 
-                    # Group and prioritize phrase-level issues (limit for performance)
+                    # User-controlled cap on how many conflicts get a generated
+                    # recommendation. The similarity threshold is the primary
+                    # filter; this cap only bounds the per-conflict keyword
+                    # extraction + suggestion work. "All" processes everything.
+                    cap_options = [100, 500, 1000, 2000, 5000, "All"]
+                    max_recs_choice = st.selectbox(
+                        "Max recommendations to generate:",
+                        cap_options,
+                        index=cap_options.index(500),
+                        key="max_recs_tab1",
+                        help="The similarity threshold above is the primary filter. This cap only limits how many conflicts get a generated suggestion. Higher values take longer but produce a more complete download."
+                    )
+                    if max_recs_choice == "All":
+                        sample_size = len(phrase_confusion_sorted)
+                    else:
+                        sample_size = min(len(phrase_confusion_sorted), max_recs_choice)
+
+                    total_above_threshold = len(phrase_confusion_sorted)
+                    if sample_size < total_above_threshold:
+                        st.info(
+                            f"💡 Generating recommendations for the top {sample_size:,} of "
+                            f"{total_above_threshold:,} conflicts above your threshold. "
+                            f"Pick a higher cap (or 'All') to include the rest, or raise the threshold to focus on fewer."
+                        )
+                    else:
+                        st.info(f"💡 Generating recommendations for all {sample_size:,} conflicts above your threshold.")
+
+                    # Precompute keywords once per unique phrase. Each phrase
+                    # appears in many conflict pairs, so caching avoids
+                    # redundant regex + stopword work — typically a 5-10x
+                    # speedup on the recommendation loop.
+                    unique_phrases = set()
+                    for c in phrase_confusion_sorted[:sample_size]:
+                        unique_phrases.add(c['Phrase'])
+                        unique_phrases.add(c['Similar To'])
+                    phrase_keywords = {p: set(extract_keywords(p)) for p in unique_phrases}
+
                     phrase_recommendations = []
 
-                    # Only analyze top N most similar for recommendations
-                    sample_size = min(len(phrase_confusion), 500)
-
-                    for confusion in phrase_confusion[:sample_size]:
+                    for confusion in phrase_confusion_sorted[:sample_size]:
                         phrase = confusion['Phrase']
                         current_intent = confusion['Intent']
                         similar_phrase = confusion['Similar To']
@@ -1245,12 +1317,12 @@ if uploaded_file is not None:
                             action = "🟢 REVIEW"
                             reason = "Moderately similar - consider rewording"
 
-                        # Extract keywords from both phrases
-                        keywords_phrase = extract_keywords(phrase)
-                        keywords_similar = extract_keywords(similar_phrase)
-                        common = set(keywords_phrase) & set(keywords_similar)
-                        unique_to_current = set(keywords_phrase) - common
-                        unique_to_other = set(keywords_similar) - common
+                        # Use precomputed keyword sets
+                        keywords_phrase = phrase_keywords[phrase]
+                        keywords_similar = phrase_keywords[similar_phrase]
+                        common = keywords_phrase & keywords_similar
+                        unique_to_current = keywords_phrase - common
+                        unique_to_other = keywords_similar - common
 
                         phrase_recommendations.append({
                             'Action': action,
@@ -1318,15 +1390,30 @@ if uploaded_file is not None:
                         if len(filtered_df) > display_limit:
                             st.info(f"📊 Showing {display_limit} of {len(filtered_df)} recommendations. Download full list below.")
 
-                    # Download phrase-level recommendations
+                    # Download phrase-level recommendations. Label is honest:
+                    # if the cap truncated the set, say so rather than calling
+                    # it "All".
                     csv_phrases = phrase_df.to_csv(index=False)
+                    if len(phrase_df) < total_above_threshold:
+                        download_label = (
+                            f"📥 Download Phrase-Level Actions "
+                            f"({len(phrase_df):,} of {total_above_threshold:,} above threshold)"
+                        )
+                        download_help = (
+                            "CSV includes BOTH conflicting phrases for easy comparison. "
+                            f"Showing the top {len(phrase_df):,} by similarity; raise 'Max recommendations' "
+                            f"to 'All' to include all {total_above_threshold:,}."
+                        )
+                    else:
+                        download_label = f"📥 Download All Phrase-Level Actions ({len(phrase_df):,} rows)"
+                        download_help = "CSV includes BOTH conflicting phrases for easy comparison"
                     st.download_button(
-                        f"📥 Download All Phrase-Level Actions ({len(phrase_df)} rows)",
+                        download_label,
                         csv_phrases,
                         "phrase_level_actions.csv",
                         "text/csv",
                         key='download-phrase-actions-tab1',
-                        help="CSV includes BOTH conflicting phrases for easy comparison"
+                        help=download_help
                     )
 
                     # Summary stats
@@ -1578,15 +1665,23 @@ if uploaded_file is not None:
                             # Use the selected paraphrase model
                             from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
-                            # Load with use_fast=False to avoid SentencePiece conversion issues
-                            tokenizer = AutoTokenizer.from_pretrained(selected_paraphrase_model, use_fast=False, legacy=False)
-                            model = AutoModelForSeq2SeqLM.from_pretrained(selected_paraphrase_model)
-                            generator = pipeline(
-                                "text2text-generation",
-                                model=model,
-                                tokenizer=tokenizer,
-                                device=0 if torch.cuda.is_available() and not st.session_state.force_cpu else -1
-                            )
+                            # Cache the paraphrase pipeline in session_state so we
+                            # don't reload tokenizer + model from disk on every
+                            # button click (each load is ~2-5s). Key includes the
+                            # device choice so toggling force_cpu rebuilds it.
+                            paraphrase_device = 0 if torch.cuda.is_available() and not st.session_state.force_cpu else -1
+                            cache_key = f"paraphrase_pipeline::{selected_paraphrase_model}::{paraphrase_device}"
+                            if cache_key not in st.session_state:
+                                # Load with use_fast=False to avoid SentencePiece conversion issues
+                                tokenizer = AutoTokenizer.from_pretrained(selected_paraphrase_model, use_fast=False, legacy=False)
+                                model = AutoModelForSeq2SeqLM.from_pretrained(selected_paraphrase_model)
+                                st.session_state[cache_key] = pipeline(
+                                    "text2text-generation",
+                                    model=model,
+                                    tokenizer=tokenizer,
+                                    device=paraphrase_device
+                                )
+                            generator = st.session_state[cache_key]
                             model_used = selected_paraphrase_model
 
                             st.info(f"✅ Using: {paraphrase_model_options[model_used]}")
@@ -1674,10 +1769,18 @@ if uploaded_file is not None:
                         if st.button("Add Generated Phrases to Dataset", key="add_gen_tab1"):
                             if phrases_for_display:
                                 extended_df = df.copy()
-                                for phrase in phrases_for_display:
-                                    new_row = {col: None for col in extended_df.columns}
-                                    new_row[selected_intent] = phrase
-                                    extended_df = pd.concat([extended_df, pd.DataFrame([new_row])], ignore_index=True)
+                                # Build all new rows up front, then concat once.
+                                # Concat-in-loop is O(n^2) because each iteration
+                                # reallocates and copies the full DataFrame.
+                                new_rows = [
+                                    {**{col: None for col in extended_df.columns},
+                                     selected_intent: phrase}
+                                    for phrase in phrases_for_display
+                                ]
+                                extended_df = pd.concat(
+                                    [extended_df, pd.DataFrame(new_rows)],
+                                    ignore_index=True
+                                )
                                 st.session_state.data = extended_df
                                 st.success("Phrases added!")
                                 st.session_state.generated_phrases.pop(selected_intent, None)
